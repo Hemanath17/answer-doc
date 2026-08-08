@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pymupdf
+sentence-transformers
+pinecone-client
+python-multipart
+python-dotenv
+cloudinary
+langchain-text-splitters
