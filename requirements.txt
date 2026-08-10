@@ -11,3 +11,7 @@ pinecone
 openai
 cohere
 ragas
+fastapi
+uvicorn
+slowapi
+sse-starlette

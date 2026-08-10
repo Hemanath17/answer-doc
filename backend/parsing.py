@@ -21,7 +21,10 @@ cloudinary.config(
 
 # NEW — OpenAI client for Vision descriptions. Same key you already
 # use for embeddings and generation — no new API account needed.
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=30.0
+)
 
 
 class ParsedPage(BaseModel):

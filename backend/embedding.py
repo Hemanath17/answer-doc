@@ -9,7 +9,10 @@ from tqdm import tqdm
 
 
 load_dotenv()
-openai_client = OpenAI(api_key = os.getenv("OPENAI_API_KEY"))
+openai_client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=30.0
+)
 pinecone_client = Pinecone(api_key = os.getenv("PINECONE_API_KEY"))
 
 index = pinecone_client.Index(os.getenv("PINECONE_INDEX"))
