@@ -38,11 +38,27 @@ class Chunk(BaseModel):
 # ─── Helper: Combine text and tables into one string ─────────────────────────
 
 def combine_page_content(page: ParsedPage) -> str:
-    # start with the raw extracted text from this page
+    """
+    CHANGED — now also appends image descriptions, using the same
+    pattern already used for tables. This is what actually makes
+    Path 2 work: the Vision-generated description becomes part of
+    the text that gets chunked and embedded, so a query like
+    "what does a refractor look like" can now match against real
+    descriptive content instead of just a thin figure caption.
+    """
     content = page.text
+
     if page.tables:
         for table in page.tables:
             content += "\n\n" + table
+
+    # NEW — append each image's description, clearly labeled so
+    # GPT-4o mini (at generation time) can recognize it as describing
+    # a visual rather than confusing it with regular textbook prose
+    if page.image_descriptions:
+        for i, description in enumerate(page.image_descriptions):
+            if description:  # skip empty strings from failed descriptions
+                content += f"\n\n[Image description: {description}]"
 
     return content
 

@@ -2,13 +2,14 @@ import pdfplumber
 import pymupdf as fitz
 import os
 import io
-import json                          # NEW
+import json
 import cloudinary
 import cloudinary.uploader
 from dotenv import load_dotenv
 from tqdm import tqdm
-from typing import List
-from pydantic import BaseModel       # NEW
+from typing import List, Optional
+from pydantic import BaseModel
+from openai import OpenAI
 
 load_dotenv()
 
@@ -18,8 +19,11 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
+# NEW — OpenAI client for Vision descriptions. Same key you already
+# use for embeddings and generation — no new API account needed.
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# NEW — Pydantic model for one parsed page
+
 class ParsedPage(BaseModel):
     page_number: int
     text: str
@@ -27,9 +31,12 @@ class ParsedPage(BaseModel):
     images: List[str]
     has_image: bool
     char_count: int
+    # NEW — one description per image in `images`, same order/index.
+    # Empty string if a description failed to generate for that image.
+    image_descriptions: List[str]
 
 
-CACHE_FILE = "parsed_pages.jsonl"   # NEW
+CACHE_FILE = "parsed_pages.jsonl"
 
 
 def upload_image_to_cloudinary(image_bytes, filename):
@@ -45,6 +52,60 @@ def upload_image_to_cloudinary(image_bytes, filename):
     except Exception as e:
         print(f"Image upload failed for {filename}: {e}")
         return None
+
+
+def describe_image_with_vision(image_url: str) -> str:
+    """
+    Sends an already-uploaded Cloudinary image URL to GPT-4o mini's
+    vision capability and asks for a detailed text description.
+
+    This is the core of Path 2 — the description gets embedded as
+    regular text alongside the chunk, making the image's CONTENT
+    (not just its existence) searchable and answerable.
+
+    Wrapped in try/except — a failed description for one image
+    should not stop parsing the rest of the PDF. Returns empty
+    string on failure, same pattern used elsewhere in this file.
+    """
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_url}
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Describe this image from an astronomy textbook "
+                                "in detail. If it is a diagram (e.g. a telescope "
+                                "design, mount type, or sky chart), describe its "
+                                "components, labels, and how they are arranged. "
+                                "If it is a photograph (e.g. a planet, nebula, or "
+                                "the Moon), describe what is visible in it. "
+                                "Be specific and factual — this description will "
+                                "be used to answer questions about the image, so "
+                                "include any labeled parts, shapes, or notable "
+                                "visual details. Keep it to 3-5 sentences."
+                            )
+                        }
+                    ]
+                }
+            ],
+            max_tokens=300
+        )
+
+        description = response.choices[0].message.content.strip()
+        print(f"  Vision description generated ({len(description)} chars)")
+        return description
+
+    except Exception as e:
+        print(f"  Vision description failed for {image_url}: {e}")
+        return ""
 
 
 def table_to_markdown(table):
@@ -65,9 +126,17 @@ def table_to_markdown(table):
 
 
 def extract_images_from_page(pdf_path, page_number):
+    """
+    CHANGED — now returns a tuple of (image_urls, image_descriptions)
+    instead of just image_urls. Each image gets uploaded to Cloudinary
+    AND immediately described via Vision, keeping both lists in the
+    same order so image_urls[i] always corresponds to
+    image_descriptions[i].
+    """
     doc = fitz.open(pdf_path)
     page = doc[page_number]
     image_urls = []
+    image_descriptions = []
 
     image_list = page.get_images(full=True)
 
@@ -86,15 +155,18 @@ def extract_images_from_page(pdf_path, page_number):
         image_url = upload_image_to_cloudinary(image_bytes, filename)
 
         if image_url:
+            print(f"  Describing image: {filename}")
+            description = describe_image_with_vision(image_url)
+
             image_urls.append(image_url)
+            image_descriptions.append(description)
 
     doc.close()
-    return image_urls
+    return image_urls, image_descriptions
 
 
 def parse_pdf(file_path: str) -> List[ParsedPage]:
 
-    # NEW — load from cache if it exists
     if os.path.exists(CACHE_FILE):
         print(f"Cache found — loading from {CACHE_FILE}")
         pages = []
@@ -105,8 +177,7 @@ def parse_pdf(file_path: str) -> List[ParsedPage]:
         print(f"Loaded {len(pages)} pages from cache in seconds.")
         return pages
 
-    # if no cache — run full parsing
-    print("No cache found — running full parser...")
+    print("No cache found — running full parser (with Vision descriptions)...")
     pages = []
 
     with pdfplumber.open(file_path) as pdf:
@@ -124,21 +195,21 @@ def parse_pdf(file_path: str) -> List[ParsedPage]:
                 if markdown:
                     markdown_tables.append(markdown)
 
-            image_urls = extract_images_from_page(file_path, page_number)
+            # CHANGED — unpack the tuple now returned by extract_images_from_page
+            image_urls, image_descriptions = extract_images_from_page(file_path, page_number)
 
-            # NEW — Pydantic model instead of raw dict
             page_data = ParsedPage(
                 page_number=page_number + 1,
                 text=text.strip(),
                 tables=markdown_tables,
                 images=image_urls,
-                has_image=len(image_urls) > 0,   # NEW field
-                char_count=len(text.strip())      # NEW field
+                has_image=len(image_urls) > 0,
+                char_count=len(text.strip()),
+                image_descriptions=image_descriptions
             )
 
             pages.append(page_data)
 
-    # NEW — save to JSONL cache after parsing
     print(f"\nSaving to cache: {CACHE_FILE}")
     with open(CACHE_FILE, "w") as f:
         for page in pages:
@@ -153,19 +224,10 @@ if __name__ == "__main__":
 
     print(f"\nTotal pages: {len(pages)}")
 
-    for page in pages:
-        print(f"\n{'='*50}")
-        print(f"Page       : {page.page_number}")
-        print(f"Characters : {page.char_count}")
-        print(f"Tables     : {len(page.tables)}")
-        print(f"Has image  : {page.has_image}")
-        print(f"Images     : {len(page.images)}")
-
-        if page.tables:
-            print(f"\n  --- Table Preview ---")
-            print(page.tables[0])
-
-        if page.images:
-            print(f"\n  --- Image URLs ---")
-            for url in page.images:
-                print(f"    {url}")
+    for page in pages: 
+        if page.has_image:
+            print(f"\n{'='*50}")
+            print(f"Page {page.page_number} — has {len(page.images)} image(s)")
+            for i, (url, desc) in enumerate(zip(page.images, page.image_descriptions)):
+                print(f"\n  Image {i+1}: {url}")
+                print(f"  Description: {desc}")
