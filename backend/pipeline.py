@@ -42,8 +42,11 @@ async def answer_question_stream(query: str) -> AsyncGenerator[Dict, None]:
     yielding token events followed by one final "done" event carrying
     sources/image metadata. This is what an SSE endpoint
     (e.g. /query/stream) should call.
+
+    Retrieval/rerank run in a thread so the async event loop stays free
+    to flush SSE frames once generation starts.
     """
-    chunks = get_context(query)
+    chunks = await asyncio.to_thread(get_context, query)
 
     async for event in generate_stream(query, chunks):
         yield event

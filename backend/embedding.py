@@ -25,8 +25,6 @@ BATCH_SIZE = 100
 
 CHUNKS_FILE = "chunks.jsonl"
 
-from vector_storage import delete_all
-delete_all()
 
 def load_chunks(file_path:str) -> List[Dict]:
     if not os.path.exists(file_path):

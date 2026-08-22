@@ -1,4 +1,4 @@
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 import os
 from dotenv import load_dotenv
 from typing import List, Dict, Optional, AsyncGenerator
@@ -7,6 +7,13 @@ import json
 load_dotenv()
 
 openai_client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=30.0
+)
+
+# Async client for SSE streaming — sync iteration inside an async
+# generator blocks the event loop and can delay/buffer tokens to the client.
+async_openai_client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     timeout=30.0
 )
@@ -186,20 +193,12 @@ def generate(query: str, chunks: List[Dict]) -> Dict:
 
 async def call_llm_stream(system_prompt: str, user_prompt: str) -> AsyncGenerator[str, None]:
     """
-    Streaming variant of call_llm(). Uses OpenAI's stream=True mode —
-    instead of waiting for the full response, tokens arrive as they're
-    generated and we yield each one immediately.
-
-    This is an async generator (note `async def` + `yield`), which is
-    what lets FastAPI forward each token to the client the moment it
-    arrives, rather than buffering the whole response server-side.
-
-    Wrapped in try/except — if the stream itself fails partway through
-    (network drop, OpenAI error mid-generation), we yield a fallback
-    message rather than leaving the client's stream hanging forever.
+    Streaming variant of call_llm(). Uses AsyncOpenAI + stream=True so
+    tokens are awaited without blocking the event loop — required for
+    SSE to flush to the browser as tokens arrive.
     """
     try:
-        stream = openai_client.chat.completions.create(
+        stream = await async_openai_client.chat.completions.create(
             model=GENERATION_MODEL,
             temperature=TEMPERATURE,
             messages=[
@@ -209,7 +208,7 @@ async def call_llm_stream(system_prompt: str, user_prompt: str) -> AsyncGenerato
             stream=True
         )
 
-        for chunk in stream:
+        async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
                 yield delta
@@ -283,6 +282,7 @@ async def generate_stream(query: str, chunks: List[Dict]) -> AsyncGenerator[Dict
     print(f"  Sources      : {[s['page'] for s in sources]}")
     print(f"  Has image    : {image_url is not None}")
     print(f"  Image URL    : {image_url or 'none'}")
+    print(f"  Answer       : {(full_answer[:200] + '...') if len(full_answer) > 200 else full_answer}")
 
     yield {
         "type"      : "done",

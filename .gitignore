@@ -5,3 +5,5 @@ answerdoc/
 .env
 answerdoc/
 .env
+frontend/.env
+frontend/.env.local
