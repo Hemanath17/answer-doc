@@ -124,7 +124,7 @@ function Message({ message, onCopy, onLike, onDislike }) {
 
   if (isUser) {
     return (
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-end", gap: 8, marginBottom: 16 }}>
         <div
           style={{
             maxWidth: "70%",
@@ -140,12 +140,14 @@ function Message({ message, onCopy, onLike, onDislike }) {
         >
           {message.content}
         </div>
+        <UserAvatar />
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 20 }}>
+    <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "flex-start", marginBottom: 20, gap: 10 }}>
+      <AiAvatar />
       <div
         style={{
           maxWidth: "80%",
@@ -217,7 +219,8 @@ function Message({ message, onCopy, onLike, onDislike }) {
 
 function WaitingIndicator() {
   return (
-    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 16 }}>
+    <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "flex-start", marginBottom: 16, gap: 10 }}>
+      <AiAvatar />
       <div
         style={{
           display: "flex",
@@ -261,9 +264,83 @@ const STYLE = `
   }
 `;
 
+function IconSun() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  );
+}
+
+function IconMoon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
+function AiAvatar() {
+  return (
+    <div
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: "50%",
+        background: "var(--accent-bg)",
+        border: "1px solid var(--accent-border)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "var(--accent)",
+      }}
+    >
+      {/* Sparkles / AI icon */}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z" />
+        <path d="M19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z" opacity="0.7" />
+        <path d="M5 17l.5 1.5L7 19l-1.5.5L5 21l-.5-1.5L3 19l1.5-.5L5 17z" opacity="0.5" />
+      </svg>
+    </div>
+  );
+}
+
+function UserAvatar() {
+  return (
+    <div
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: "50%",
+        background: "var(--accent)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "#fff",
+      }}
+    >
+      {/* Person silhouette */}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 20c0-4 3.582-7 8-7s8 3 8 7" />
+      </svg>
+    </div>
+  );
+}
+
 /* ── Main ChatInterface ───────────────────────────────────────────────── */
 
-export default function ChatInterface({ docStatus }) {
+export default function ChatInterface({ docStatus, theme, onToggleTheme }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -292,10 +369,11 @@ export default function ChatInterface({ docStatus }) {
     const assistantId = `a-${Date.now()}`;
     assistantIdRef.current = assistantId;
 
+    // Only add the user message now; the assistant bubble is created on the
+    // first token so we never show an empty bubble alongside the waiting dots.
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: "user", content: question },
-      { id: assistantId, role: "assistant", content: "", streaming: true, liked: null, copied: false },
     ]);
     setInput("");
     setLoading(true);
@@ -304,28 +382,58 @@ export default function ChatInterface({ docStatus }) {
 
     abortRef.current = new AbortController();
 
+    // Track whether the assistant bubble has been inserted yet.
+    let bubbleCreated = false;
+
     const appendToken = (token) => {
-      setWaitingForFirstToken(false);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId ? { ...m, content: m.content + token } : m
-        )
-      );
+      if (!bubbleCreated) {
+        bubbleCreated = true;
+        setWaitingForFirstToken(false);
+        setMessages((prev) => [
+          ...prev,
+          { id: assistantId, role: "assistant", content: token, streaming: true, liked: null, copied: false },
+        ]);
+      } else {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, content: m.content + token } : m
+          )
+        );
+      }
     };
 
     const finalizeMessage = (payload) => {
-      patchMessage(assistantId, {
-        streaming: false,
-        sources: payload.sources,
-        hasImage: payload.has_image,
-        imageUrl: payload.image_url,
-      });
+      // If no tokens ever arrived (e.g. very short server-side fallback
+      // that was sent directly as a done event), create the bubble now.
+      if (!bubbleCreated) {
+        bubbleCreated = true;
+        setMessages((prev) => [
+          ...prev,
+          { id: assistantId, role: "assistant", content: "", streaming: false, liked: null, copied: false,
+            sources: payload.sources, hasImage: payload.has_image, imageUrl: payload.image_url },
+        ]);
+      } else {
+        patchMessage(assistantId, {
+          streaming: false,
+          sources: payload.sources,
+          hasImage: payload.has_image,
+          imageUrl: payload.image_url,
+        });
+      }
       setLoading(false);
       setWaitingForFirstToken(false);
     };
 
     const showError = (msg) => {
-      patchMessage(assistantId, { streaming: false, error: true, content: msg });
+      if (!bubbleCreated) {
+        bubbleCreated = true;
+        setMessages((prev) => [
+          ...prev,
+          { id: assistantId, role: "assistant", content: msg, streaming: false, error: true, liked: null, copied: false },
+        ]);
+      } else {
+        patchMessage(assistantId, { streaming: false, error: true, content: msg });
+      }
       setLoading(false);
       setWaitingForFirstToken(false);
     };
@@ -336,6 +444,10 @@ export default function ChatInterface({ docStatus }) {
       onError: showError,
       signal: abortRef.current.signal,
     });
+
+    // Safety net: guarantees loading resets even if a callback was missed.
+    setLoading(false);
+    setWaitingForFirstToken(false);
   }
 
   /* ── Stop ── */
@@ -383,8 +495,8 @@ export default function ChatInterface({ docStatus }) {
 
   const placeholder = !docReady
     ? docStatus.status === "processing"
-      ? "Processing your PDF…"
-      : "Upload a PDF from the sidebar to get started"
+      ? "Processing your source…"
+      : "Add a source from the sidebar to get started"
     : "Ask a question…";
 
   return (
@@ -409,50 +521,61 @@ export default function ChatInterface({ docStatus }) {
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0 24px",
-          height: 56,
+          height: 64,
           borderBottom: "1px solid var(--border)",
           background: "var(--bg)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 28,
-              height: 28,
-              borderRadius: 8,
-              background: "var(--accent)",
-              color: "#fff",
-              fontSize: 14,
-              fontWeight: 700,
-            }}
-          >
-            A
-          </span>
-          <span style={{ fontWeight: 600, fontSize: 15, color: "var(--text-h)", letterSpacing: "-0.01em" }}>
-            AnswerDoc
-          </span>
+        <div>
+          <p style={{ fontWeight: 600, fontSize: 15, color: "var(--text-h)", letterSpacing: "-0.01em" }}>
+            Chat Interface
+          </p>
+          <p style={{ fontSize: 11, color: "var(--text)", marginTop: 2 }}>
+            Ask questions about your sources to get answers.
+          </p>
         </div>
 
-        {docStatus.filename && (
-          <span
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {docStatus.filename && (
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--text)",
+                padding: "3px 10px",
+                borderRadius: 20,
+                border: "1px solid var(--border)",
+                maxWidth: 200,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {docStatus.filename}
+            </span>
+          )}
+
+          <button
+            onClick={onToggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             style={{
-              fontSize: 12,
-              color: "var(--text)",
-              padding: "3px 10px",
-              borderRadius: 20,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 32,
+              height: 32,
+              borderRadius: 8,
               border: "1px solid var(--border)",
-              maxWidth: 240,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              background: "var(--bg)",
+              color: "var(--text)",
+              cursor: "pointer",
+              transition: "color 0.15s, border-color 0.15s",
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-h)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text)"; }}
           >
-            {docStatus.filename}
-          </span>
-        )}
+            {theme === "dark" ? <IconSun /> : <IconMoon />}
+          </button>
+        </div>
       </header>
 
       {/* Message list */}
@@ -484,8 +607,8 @@ export default function ChatInterface({ docStatus }) {
             </p>
             <p style={{ fontSize: 13, maxWidth: 320 }}>
               {docReady
-                ? "Ask anything about your document — page references and images included."
-                : "Upload a PDF using the sidebar to start asking questions."}
+                ? "Ask anything about your source — page references and images included."
+                : "Add a PDF, web link, YouTube video, or pasted text from the sidebar."}
             </p>
           </div>
         )}

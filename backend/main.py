@@ -19,7 +19,9 @@ from pipeline import answer_question, answer_question_stream
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_doc_state: dict = {"status": "none", "filename": None, "error": None}
+ACCEPTED_EXTENSIONS = {".pdf", ".txt", ".csv"}
+
+_doc_state: dict = {"status": "none", "filename": None, "error": None, "chunk_count": 0}
 
 
 @asynccontextmanager
@@ -30,15 +32,17 @@ async def lifespan(app: FastAPI):
         stats = await asyncio.to_thread(get_stats)
         if stats.get("total_vectors", 0) > 0:
             filename = "Uploaded document"
+            chunk_count = 0
             chunks_path = os.path.join(BACKEND_DIR, "chunks.jsonl")
             if os.path.exists(chunks_path):
                 with open(chunks_path, "r") as f:
-                    first_line = f.readline().strip()
-                    if first_line:
-                        chunk = json.loads(first_line)
+                    lines = f.readlines()
+                    chunk_count = len(lines)
+                    if lines:
+                        chunk = json.loads(lines[0].strip())
                         filename = chunk.get("source", filename)
-            _doc_state = {"status": "ready", "filename": filename, "error": None}
-            print(f"Startup: restored '{filename}' ({stats['total_vectors']} vectors in Pinecone).")
+            _doc_state = {"status": "ready", "filename": filename, "error": None, "chunk_count": chunk_count}
+            print(f"Startup: restored '{filename}' ({stats['total_vectors']} vectors, {chunk_count} chunks).")
         else:
             print("Startup: no vectors found — waiting for upload.")
     except Exception as exc:
@@ -132,10 +136,7 @@ async def sse_event_generator(question: str):
     try:
         async for chunk in answer_question_stream(question):
             if chunk["type"] == "token":
-                yield {
-                    "event": "token",
-                    "data": chunk["content"]
-                }
+                yield {"event": "token", "data": chunk["content"]}
             elif chunk["type"] == "done":
                 yield {
                     "event": "done",
@@ -149,9 +150,7 @@ async def sse_event_generator(question: str):
         print(f"Unexpected error in stream: {e}")
         yield {
             "event": "error",
-            "data": json.dumps({
-                "message": "Something went wrong while generating the answer."
-            })
+            "data": json.dumps({"message": "Something went wrong while generating the answer."})
         }
 
 
@@ -163,7 +162,7 @@ async def query_stream(request: Request, body: QueryRequest):
     return EventSourceResponse(sse_event_generator(body.question))
 
 
-def _run_pipeline(pdf_path: str, filename: str) -> None:
+def _run_pipeline(pdf_path: str, filename: str, file_ext: str) -> None:
     global _doc_state
     try:
         for cache in ["parsed_pages.jsonl", "chunks.jsonl"]:
@@ -171,48 +170,151 @@ def _run_pipeline(pdf_path: str, filename: str) -> None:
             if os.path.exists(p):
                 os.remove(p)
 
-        from parsing import parse_pdf
+        from parsing import parse_file
         from chunking import chunk_pages
         from vector_storage import delete_all
         from embedding import embed_and_store
 
-        pages = parse_pdf(pdf_path)
+        pages = parse_file(pdf_path, file_ext)
         chunks = chunk_pages(pages, source_name=filename)
         chunks_dicts = [c.model_dump() for c in chunks]
 
         delete_all()
         embed_and_store(chunks_dicts)
 
-        _doc_state = {"status": "ready", "filename": filename, "error": None}
+        _doc_state = {
+            "status": "ready",
+            "filename": filename,
+            "error": None,
+            "chunk_count": len(chunks_dicts)
+        }
     except Exception as exc:
         print(f"Upload pipeline error: {exc}")
-        _doc_state = {"status": "error", "filename": filename, "error": str(exc)}
+        _doc_state = {"status": "error", "filename": filename, "error": str(exc), "chunk_count": 0}
     finally:
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
 
 
 @app.post("/upload")
-async def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     global _doc_state
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ACCEPTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Accepted: {', '.join(ACCEPTED_EXTENSIONS)}"
+        )
 
     tmp = tempfile.NamedTemporaryFile(
-        delete=False, suffix=".pdf", dir=BACKEND_DIR, prefix="upload_"
+        delete=False, suffix=ext, dir=BACKEND_DIR, prefix="upload_"
     )
     try:
         tmp.write(await file.read())
     finally:
         tmp.close()
 
-    _doc_state = {"status": "processing", "filename": file.filename, "error": None}
-    background_tasks.add_task(_run_pipeline, tmp.name, file.filename)
+    _doc_state = {"status": "processing", "filename": file.filename, "error": None, "chunk_count": 0}
+    background_tasks.add_task(_run_pipeline, tmp.name, file.filename, ext)
     return _doc_state
 
 
 @app.get("/doc/status")
 def doc_status():
+    return _doc_state
+
+
+def _run_ingest_pipeline(records: list, source_name: str) -> None:
+    global _doc_state
+    try:
+        from parsing import ParsedPage
+        from chunking import chunk_pages
+        from vector_storage import delete_all
+        from embedding import embed_and_store
+
+        pages = []
+        for i, rec in enumerate(records):
+            img_url = rec.get("metadata", {}).get("image_url") or ""
+            pages.append(ParsedPage(
+                page_number=i + 1,
+                text=rec["text"],
+                tables=[],
+                images=[img_url] if img_url else [],
+                has_image=bool(img_url),
+                char_count=len(rec["text"]),
+                image_descriptions=[]
+            ))
+
+        for cache in ["parsed_pages.jsonl", "chunks.jsonl"]:
+            p = os.path.join(BACKEND_DIR, cache)
+            if os.path.exists(p):
+                os.remove(p)
+
+        chunks = chunk_pages(pages, source_name=source_name)
+        chunks_dicts = [c.model_dump() for c in chunks]
+
+        delete_all()
+        embed_and_store(chunks_dicts)
+
+        _doc_state = {"status": "ready", "filename": source_name, "error": None, "chunk_count": len(chunks_dicts)}
+    except Exception as exc:
+        print(f"Ingest pipeline error: {exc}")
+        _doc_state = {"status": "error", "filename": source_name, "error": str(exc), "chunk_count": 0}
+
+
+class IngestUrlRequest(BaseModel):
+    url: str
+
+
+class IngestYoutubeRequest(BaseModel):
+    url: str
+
+
+class IngestTextRequest(BaseModel):
+    title: str
+    content: str
+
+
+@app.post("/ingest/url")
+async def ingest_url(body: IngestUrlRequest, background_tasks: BackgroundTasks):
+    global _doc_state
+    try:
+        from additionalfiles import ingest_source
+        records = await asyncio.to_thread(ingest_source, "url", url=body.url)
+        source_name = records[0]["metadata"].get("title", body.url) if records else body.url
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _doc_state = {"status": "processing", "filename": source_name, "error": None, "chunk_count": 0}
+    background_tasks.add_task(_run_ingest_pipeline, records, source_name)
+    return _doc_state
+
+
+@app.post("/ingest/youtube")
+async def ingest_youtube(body: IngestYoutubeRequest, background_tasks: BackgroundTasks):
+    global _doc_state
+    try:
+        from additionalfiles import ingest_source
+        records = await asyncio.to_thread(ingest_source, "youtube", youtube_url=body.url)
+        source_name = f"YouTube: {body.url}"
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _doc_state = {"status": "processing", "filename": source_name, "error": None, "chunk_count": 0}
+    background_tasks.add_task(_run_ingest_pipeline, records, source_name)
+    return _doc_state
+
+
+@app.post("/ingest/text")
+async def ingest_text(body: IngestTextRequest, background_tasks: BackgroundTasks):
+    global _doc_state
+    try:
+        from additionalfiles import ingest_source
+        records = await asyncio.to_thread(ingest_source, "text", title=body.title, content=body.content)
+        source_name = body.title or "Pasted Text"
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _doc_state = {"status": "processing", "filename": source_name, "error": None, "chunk_count": 0}
+    background_tasks.add_task(_run_ingest_pipeline, records, source_name)
     return _doc_state
 
 
@@ -228,7 +330,7 @@ async def doc_clear():
             if os.path.exists(p):
                 os.remove(p)
 
-        _doc_state = {"status": "none", "filename": None, "error": None}
+        _doc_state = {"status": "none", "filename": None, "error": None, "chunk_count": 0}
         return {"cleared": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to clear: {exc}")
@@ -241,5 +343,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True,
-        reload_excludes=["*.jsonl", "upload_*.pdf"],
+        reload_excludes=["*.jsonl", "upload_*.pdf", "upload_*.txt", "upload_*.csv"],
     )

@@ -15,3 +15,6 @@ fastapi
 uvicorn
 slowapi
 sse-starlette
+httpx
+trafilatura
+youtube-transcript-api

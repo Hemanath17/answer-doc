@@ -222,6 +222,66 @@ def parse_pdf(file_path: str) -> List[ParsedPage]:
     return pages
 
 
+def parse_txt(file_path: str) -> List[ParsedPage]:
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        text = f.read().strip()
+
+    return [ParsedPage(
+        page_number=1,
+        text=text,
+        tables=[],
+        images=[],
+        has_image=False,
+        char_count=len(text),
+        image_descriptions=[]
+    )]
+
+
+def parse_csv(file_path: str) -> List[ParsedPage]:
+    import csv
+
+    rows = []
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            rows.append(row)
+
+    if not rows:
+        return [ParsedPage(page_number=1, text="", tables=[], images=[], has_image=False, char_count=0, image_descriptions=[])]
+
+    headers = rows[0]
+    markdown = "| " + " | ".join(headers) + " |\n"
+    markdown += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+    for row in rows[1:]:
+        padded = row + [""] * max(0, len(headers) - len(row))
+        markdown += "| " + " | ".join(padded[:len(headers)]) + " |\n"
+
+    raw_text = "\n".join([", ".join(row) for row in rows])
+    combined = f"{markdown}\n\n{raw_text}"
+
+    return [ParsedPage(
+        page_number=1,
+        text=combined,
+        tables=[markdown],
+        images=[],
+        has_image=False,
+        char_count=len(combined),
+        image_descriptions=[]
+    )]
+
+
+def parse_file(file_path: str, ext: str) -> List[ParsedPage]:
+    ext = ext.lower()
+    if ext == ".pdf":
+        return parse_pdf(file_path)
+    elif ext == ".txt":
+        return parse_txt(file_path)
+    elif ext == ".csv":
+        return parse_csv(file_path)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+
 if __name__ == "__main__":
     pages = parse_pdf("Astronomy Basics.pdf")
 
