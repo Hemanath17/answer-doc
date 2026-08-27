@@ -1,3 +1,4 @@
+# force rebuild
 [phases.setup]
 nixPkgs = ["python312", "poppler_utils", "pkg-config"]
 
