@@ -56,9 +56,11 @@ app = FastAPI(title="AnswerDoc API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+_extra = os.getenv("ALLOWED_ORIGINS", "")
 FRONTEND_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
+    *[o.strip() for o in _extra.split(",") if o.strip()],
 ]
 
 app.add_middleware(
@@ -338,10 +340,12 @@ async def doc_clear():
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    reload = os.getenv("ENVIRONMENT", "development") == "development"
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=port,
+        reload=reload,
         reload_excludes=["*.jsonl", "upload_*.pdf", "upload_*.txt", "upload_*.csv"],
     )
