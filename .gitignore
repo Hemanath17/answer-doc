@@ -1,9 +1,24 @@
-.env
+# Environment files
 .env
 backend/.env
-answerdoc/
-.env
-answerdoc/
-.env
 frontend/.env
 frontend/.env.local
+
+# Python virtual environment
+answerdoc/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime cache files (generated at runtime, not source code)
+backend/chunks.jsonl
+backend/parsed_pages.jsonl
+
+# Uploaded temp files
+backend/upload_*
+
+# Node
+frontend/node_modules/
+frontend/dist/
