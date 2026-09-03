@@ -69,19 +69,35 @@ def _pick_best_image(html: str, base_url: str) -> str | None:
     return None
 
 
-def extract_from_url(url: str, timeout: float = 15.0) -> list[dict]:
+def extract_from_url(url: str, timeout: float = 20.0) -> list[dict]:
+    # Use a realistic browser UA — bot UAs are blocked by many sites (e.g. 403)
     headers = {
         "User-Agent": (
-            "Mozilla/5.0 (compatible; AnswerDocBot/1.0; "
-            "+https://answerdoc.example.com)"
-        )
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
     }
 
     try:
         response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
-        response.raise_for_status()
+    except httpx.TimeoutException:
+        raise ValueError(f"The URL timed out after {timeout}s — the site may be slow or unreachable.")
     except httpx.HTTPError as e:
         raise ValueError(f"Failed to fetch URL: {e}")
+
+    if response.status_code == 403:
+        raise ValueError(
+            "This site blocked the request (HTTP 403). "
+            "It may require login or actively blocks scrapers."
+        )
+    if response.status_code == 404:
+        raise ValueError("Page not found (HTTP 404). Check the URL and try again.")
+    if not response.is_success:
+        raise ValueError(f"The site returned HTTP {response.status_code}. Try a different URL.")
 
     extracted = trafilatura.extract(
         response.text,

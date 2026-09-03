@@ -35,13 +35,6 @@ function IconLink() {
   );
 }
 
-function IconYoutube() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19.59 6.69a4.83 4.83 0 0 0-3.77-3.37C14.1 3 12 3 12 3s-2.1 0-3.82.32a4.83 4.83 0 0 0-3.77 3.37A50.59 50.59 0 0 0 4 12a50.59 50.59 0 0 0 .41 5.31 4.83 4.83 0 0 0 3.77 3.37C9.9 21 12 21 12 21s2.1 0 3.82-.32a4.83 4.83 0 0 0 3.77-3.37A50.59 50.59 0 0 0 20 12a50.59 50.59 0 0 0-.41-5.31zM10 15V9l5 3-5 3z" />
-    </svg>
-  );
-}
 
 function IconPaste() {
   return (
@@ -261,29 +254,6 @@ function LinkForm({ onSubmit }) {
   );
 }
 
-function YoutubeForm({ onSubmit }) {
-  const [url, setUrl] = useState("");
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <p style={{ fontSize: 12, color: "var(--text)" }}>Paste a YouTube video URL to ingest its transcript.</p>
-      <input
-        style={inputStyle}
-        type="url"
-        placeholder="https://youtube.com/watch?v=..."
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && url.trim() && onSubmit(url.trim())}
-      />
-      <button
-        style={{ ...submitBtnStyle, opacity: url.trim() ? 1 : 0.5, cursor: url.trim() ? "pointer" : "default" }}
-        disabled={!url.trim()}
-        onClick={() => url.trim() && onSubmit(url.trim())}
-      >
-        Add video
-      </button>
-    </div>
-  );
-}
 
 function PasteForm({ onSubmit }) {
   const [title, setTitle] = useState("");
@@ -316,20 +286,18 @@ function PasteForm({ onSubmit }) {
 }
 
 const MODES = [
-  { id: "upload",  label: "Upload",  Icon: IconUploadArrow },
-  { id: "link",    label: "Link",    Icon: IconLink },
-  { id: "youtube", label: "YouTube", Icon: IconYoutube },
-  { id: "paste",   label: "Paste",   Icon: IconPaste },
+  { id: "upload", label: "Upload", Icon: IconUploadArrow },
+  { id: "link",   label: "Link",   Icon: IconLink },
+  { id: "paste",  label: "Paste",  Icon: IconPaste },
 ];
 
-function SourceInputPanel({ mode, setMode, onUpload, onIngestUrl, onIngestYoutube, onIngestText }) {
+function SourceInputPanel({ mode, setMode, onUpload, onIngestUrl, onIngestText }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Mode content */}
-      {mode === "upload"  && <UploadForm  onUpload={onUpload} />}
-      {mode === "link"    && <LinkForm    onSubmit={onIngestUrl} />}
-      {mode === "youtube" && <YoutubeForm onSubmit={onIngestYoutube} />}
-      {mode === "paste"   && <PasteForm   onSubmit={onIngestText} />}
+      {mode === "upload" && <UploadForm onUpload={onUpload} />}
+      {mode === "link"   && <LinkForm   onSubmit={onIngestUrl} />}
+      {mode === "paste"  && <PasteForm  onSubmit={onIngestText} />}
 
       {/* Tab switcher */}
       <div style={{ display: "flex", gap: 4, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
@@ -370,7 +338,7 @@ function SourceInputPanel({ mode, setMode, onUpload, onIngestUrl, onIngestYoutub
   );
 }
 
-export default function Sidebar({ open, onToggle, docStatus, fileSize, onUpload, onIngestUrl, onIngestYoutube, onIngestText, onClear }) {
+export default function Sidebar({ open, onToggle, docStatus, fileSize, onUpload, onIngestUrl, onIngestText, onClear }) {
   const hasDoc = docStatus.status !== "none";
   const [mode, setMode] = useState("upload");
 
@@ -442,7 +410,6 @@ export default function Sidebar({ open, onToggle, docStatus, fileSize, onUpload,
                     mode={mode} setMode={setMode}
                     onUpload={onUpload}
                     onIngestUrl={onIngestUrl}
-                    onIngestYoutube={onIngestYoutube}
                     onIngestText={onIngestText}
                   />
                 </>
@@ -459,7 +426,6 @@ export default function Sidebar({ open, onToggle, docStatus, fileSize, onUpload,
                 mode={mode} setMode={setMode}
                 onUpload={onUpload}
                 onIngestUrl={onIngestUrl}
-                onIngestYoutube={onIngestYoutube}
                 onIngestText={onIngestText}
               />
             </>

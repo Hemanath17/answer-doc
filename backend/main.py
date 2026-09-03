@@ -269,9 +269,6 @@ class IngestUrlRequest(BaseModel):
     url: str
 
 
-class IngestYoutubeRequest(BaseModel):
-    url: str
-
 
 class IngestTextRequest(BaseModel):
     title: str
@@ -291,19 +288,6 @@ async def ingest_url(body: IngestUrlRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_ingest_pipeline, records, source_name)
     return _doc_state
 
-
-@app.post("/ingest/youtube")
-async def ingest_youtube(body: IngestYoutubeRequest, background_tasks: BackgroundTasks):
-    global _doc_state
-    try:
-        from additionalfiles import ingest_source
-        records = await asyncio.to_thread(ingest_source, "youtube", youtube_url=body.url)
-        source_name = f"YouTube: {body.url}"
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    _doc_state = {"status": "processing", "filename": source_name, "error": None, "chunk_count": 0}
-    background_tasks.add_task(_run_ingest_pipeline, records, source_name)
-    return _doc_state
 
 
 @app.post("/ingest/text")

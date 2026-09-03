@@ -79,26 +79,6 @@ export default function App() {
     }
   }, []);
 
-  const handleIngestYoutube = useCallback(async (url) => {
-    setFileSize(null);
-    setDocStatus({ status: "processing", filename: `YouTube: ${url}`, error: null, chunk_count: 0 });
-    try {
-      const res = await fetch(`${API_URL}/ingest/youtube`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        setDocStatus({ status: "error", filename: url, error: err.detail || "Failed to get YouTube transcript.", chunk_count: 0 });
-        return;
-      }
-      setDocStatus(await res.json());
-    } catch {
-      setDocStatus({ status: "error", filename: url, error: "Could not reach the backend.", chunk_count: 0 });
-    }
-  }, []);
-
   const handleIngestText = useCallback(async (title, content) => {
     setFileSize(null);
     const name = title || "Pasted Text";
@@ -139,7 +119,6 @@ export default function App() {
         fileSize={fileSize}
         onUpload={handleUpload}
         onIngestUrl={handleIngestUrl}
-        onIngestYoutube={handleIngestYoutube}
         onIngestText={handleIngestText}
         onClear={handleClear}
       />

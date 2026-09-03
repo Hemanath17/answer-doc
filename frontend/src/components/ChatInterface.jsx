@@ -608,7 +608,7 @@ export default function ChatInterface({ docStatus, theme, onToggleTheme }) {
             <p style={{ fontSize: 13, maxWidth: 320 }}>
               {docReady
                 ? "Ask anything about your source — page references and images included."
-                : "Add a PDF, web link, YouTube video, or pasted text from the sidebar."}
+                : "Add a PDF, web link, or pasted text from the sidebar."}
             </p>
           </div>
         )}
